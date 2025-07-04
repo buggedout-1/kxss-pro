@@ -48,9 +48,8 @@ func main() {
     totalTargets = len(urls)
     client := &http.Client{
         Timeout: 10 * time.Second,
-        CheckRedirect: func(req *http.Request, via []*http.Request) error {
-            return http.ErrUseLastResponse // Don't follow redirects
-        },
+        // Let client follow redirects normally
+        CheckRedirect: nil,
     }
 
     urlsChannel := make(chan string, totalTargets)
@@ -101,26 +100,9 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
             }
         case "op":
             modifiedURL = replaceURLParams(url, `https://example.com`)
-            testString = `https://example.com`
+            testString = `<h1>Example Domain</h1>`
             successCondition = func(body string) bool {
-                // Check for redirect location header or example.com in body
-                resp, err := client.Get(modifiedURL)
-                if err != nil {
-                    return false
-                }
-                defer resp.Body.Close()
-
-                // Check Location header for open redirect
-                if loc, err := resp.Location(); err == nil && strings.Contains(loc.String(), "example.com") {
-                    return true
-                }
-
-                // Check body for example.com content
-                bodyBytes, err := io.ReadAll(resp.Body)
-                if err != nil {
-                    return false
-                }
-                return strings.Contains(string(bodyBytes), `<h1>Example Domain</h1>`)
+                return strings.Contains(body, testString)
             }
         default:
             continue
@@ -132,6 +114,7 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
         }
         defer resp.Body.Close()
 
+        // For both XSS and open redirect, check content type to avoid false positives on non-html
         if !isXSSContentType(resp.Header.Get("Content-Type")) {
             continue
         }
