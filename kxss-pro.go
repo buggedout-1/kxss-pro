@@ -27,12 +27,12 @@ var (
 )
 
 func main() {
-    flag.StringVar(&baseURL, "u", "", "Base URL with FUZZ placeholder, e.g., https://FUZZ.com/admin.php")
+    flag.StringVar(&baseURL, "u", "", "URL")
     flag.StringVar(&domainList, "l", "", "Path to the file containing the list of URLs.")
     flag.Parse()
 
     if domainList == "" {
-        fmt.Println("Usage: ./main -l <file_path>")
+        fmt.Println("Usage: go run kxss-pro -l <file_path>")
         os.Exit(1)
     }
 
@@ -43,15 +43,15 @@ func main() {
     }
 
     totalTargets = len(urls)
-    client := &http.Client{Timeout: 5 * time.Second}
+    client := &http.Client{Timeout: 10 * time.Second}
 
     // Create channels for communication between main and worker goroutines
     urlsChannel := make(chan string, totalTargets)
     resultsChannel := make(chan string, totalTargets)
     done := make(chan bool)
 
-    // Start the worker pool with 40 goroutines
-    go startWorkerPool(urlsChannel, resultsChannel, 50, client)
+    // Start the worker pool with 10 goroutines
+    go startWorkerPool(urlsChannel, resultsChannel, 10, client)
 
     // Start the results processor
     go processResults(resultsChannel, done)
@@ -88,7 +88,7 @@ func startWorkerPool(urls <-chan string, results chan<- string, numWorkers int, 
 
 func processURLs(urls <-chan string, results chan<- string, client *http.Client) {
     for url := range urls {
-        // Replace parameters with "><buggedout>"
+        // Replace parameters with "></buggedout>"
         modifiedURL := replaceURLParams(url)
 
         resp, err := client.Get(modifiedURL)
@@ -98,6 +98,12 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
         }
         defer resp.Body.Close()
 
+        // Check if content type is suitable for XSS
+        contentType := resp.Header.Get("Content-Type")
+        if !isXSSContentType(contentType) {
+            continue
+        }
+
         // Read the response body with a timeout
         body, readErr := readResponseBodyWithTimeout(resp.Body, 2*time.Second)
         if readErr != nil {
@@ -106,16 +112,31 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
         }
 
         // Check if the body contains the reflected string
-        if strings.Contains(string(body), `"><buggedout>`) {
+        if strings.Contains(string(body), `"></buggedout>`) {
             // Only print the URL without extra information
             results <- fmt.Sprintf("%s\n", modifiedURL)
         }
     }
 }
 
+// Helper function to check if content type is suitable for XSS
+func isXSSContentType(contentType string) bool {
+    contentTypes := []string{
+        "text/html",
+        "application/xhtml+xml",
+        "application/xml",
+        "text/xml",
+        "image/svg+xml",
+    }
 
+    for _, ct := range contentTypes {
+        if strings.Contains(contentType, ct) {
+            return true
+        }
+    }
+    return false
+}
 
-// Function to replace all query parameters with `"><buggedout>`
 // Function to replace all URL parameters with "><buggedout>"
 func replaceURLParams(rawURL string) string {
     parsedURL, err := url.Parse(rawURL)
@@ -126,7 +147,7 @@ func replaceURLParams(rawURL string) string {
     // Modify query parameters
     queryParams := parsedURL.Query()
     for key := range queryParams {
-        queryParams.Set(key, `"><buggedout>`)
+        queryParams.Set(key, `"></buggedout>`)
     }
 
     // Rebuild the URL with modified parameters
@@ -134,7 +155,6 @@ func replaceURLParams(rawURL string) string {
 
     return parsedURL.String()
 }
-
 
 func processResults(results <-chan string, done chan<- bool) {
     for result := range results {
