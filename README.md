@@ -1,8 +1,3 @@
-Here's a polished and styled version of your `README.md` for **xssr** — with emojis, formatting, and a hacker vibe to match your tool’s purpose:
-
----
-
-````markdown
 # 🧪 xssr — XSS Reflector
 
 **xssr** is a fast and simple Go tool built for bug bounty hunters and web security researchers.
