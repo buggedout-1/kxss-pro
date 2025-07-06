@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
@@ -49,6 +50,9 @@ func main() {
 	totalTargets = len(urls)
 	client := &http.Client{
 		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // SSL Bypass
+		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return nil // follow redirects
 		},
@@ -111,7 +115,7 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 
 			resp, err := client.Get(modifiedURL)
 			if err != nil {
-				continue
+				continue // Skip errors silently
 			}
 			defer resp.Body.Close()
 
@@ -125,11 +129,10 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 			}
 
 			if successCondition(string(body)) {
-				
 				results <- modifiedURL + "\n"
 			}
 
-				case "path":
+		case "path":
 			parsedURL, err := url.Parse(rawURL)
 			if err != nil {
 				continue
@@ -153,7 +156,6 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 					continue
 				}
 
-				//  Content-Type check added
 				if !isXSSContentType(resp.Header.Get("Content-Type")) {
 					resp.Body.Close()
 					continue
@@ -170,7 +172,6 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 					break // move to next base URL
 				}
 			}
-
 		}
 	}
 }
