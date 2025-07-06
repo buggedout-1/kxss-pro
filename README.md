@@ -1,71 +1,71 @@
-```
-# KXSS-Pro
+Here's a polished and styled version of your `README.md` for **xssr** — with emojis, formatting, and a hacker vibe to match your tool’s purpose:
 
-**KXSS-Pro** is a powerful security testing tool that detects two common web vulnerabilities:
-1. Reflected XSS (Cross-Site Scripting) by testing parameter reflection
-2. Open Redirect vulnerabilities by testing URL redirection
+---
 
-## Features
+````markdown
+# 🧪 xssr — XSS Reflector
 
-### XSS Detection
-- Automatically replaces URL parameters with `"><buggedout>`
-- Detects reflection in response bodies
-- Identifies potential XSS vulnerabilities
+**xssr** is a fast and simple Go tool built for bug bounty hunters and web security researchers.
 
-### Open Redirect Detection
-- Replaces URL parameters with `https://example.com`
-- Verifies redirects to external domains
-- Checks both Location headers and response bodies
+It helps you detect:
 
-### Core Features
-- Supports bulk URL testing via input files
-- Multi-threaded for fast scanning
-- Simple CLI interface
-- Configurable timeout settings
-- Smart content-type filtering
+🔹 Reflected **XSS** via query parameters  
+🔹 **Open Redirects**  
+🔹 Reflected strings in **path segments**
 
-## Installation
+---
+
+## 💡 Why `<buggedout>`?
+
+Instead of injecting raw XSS payloads, `xssr` uses a harmless test string:
+
+```html
+<buggedout>
+````
+
+### 🔒 Why not use real payloads?
+
+* 🚫 Real payloads often get blocked by WAFs
+* ✅ `<buggedout>` is typically **whitelisted** and safe
+* 🔍 Helps detect **reflections without being filtered**
+* 🧠 Once reflection is found, **manual payload testing** gives you the edge
+
+> 💥 **The real challenge in XSS is bypassing the WAF — not injecting `<script>`.**
+
+---
+
+## 🚀 Usage
 
 ```bash
-git clone https://github.com/buggedout-1/kxss-pro.git
-cd kxss-pro
-go build xssr.go
-
-# Install system-wide (optional)
-sudo mv xssr /usr/local/bin/
+go run xssr.go -l urls.txt -t [xss | op | path]
 ```
 
-## Usage
+### 📘 Options
 
-### Basic XSS Scanning
+| Flag | Description                       |
+| ---- | --------------------------------- |
+| `-l` | Path to file with target URLs     |
+| `-t` | Scan type: `xss`, `op`, or `path` |
+
+---
+
+## 🔍 Examples
+
+Test for path-based reflection:
+
 ```bash
-xssr -l urls.txt -t xss
+go run xssr.go -l urls.txt -t path
 ```
 
-### Open Redirect Testing
+Test for reflected XSS via query:
+
 ```bash
-xssr -l urls.txt -t op
+go run xssr.go -l urls.txt -t xss
 ```
 
-### Options
-```
--l string    Path to file containing URLs to test
--t string    Scan type: 'xss' or 'op' (required)
-```
+Test for open redirects:
 
-## Output
-The tool outputs vulnerable URLs where:
-- For XSS: The payload is reflected in the response
-- For Open Redirect: The site redirects to example.com
-
-## Examples
-
-Test a list of URLs for XSS:
 ```bash
-xssr -l urls.txt -t xss > xss_results.txt
+go run xssr.go -l urls.txt -t op
 ```
 
-Check for open redirects:
-```bash
-xssr -l urls.txt -t op > redirects.txt
-```
