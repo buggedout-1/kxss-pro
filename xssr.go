@@ -29,15 +29,16 @@ var (
 
 func main() {
 	flag.StringVar(&domainList, "l", "", "Path to the file containing the list of URLs.")
-	flag.StringVar(&scanType, "t", "", "Scan type: 'xss', 'op' (open redirect), or 'path'")
+	flag.StringVar(&scanType, "t", "", "Scan type: 'xss', 'op' (open redirect), 'path', or 'ssti'")
 	flag.Parse()
 
-	if domainList == "" || (scanType != "xss" && scanType != "op" && scanType != "path") {
+	if domainList == "" || (scanType != "xss" && scanType != "op" && scanType != "path" && scanType != "ssti") {
 		fmt.Println("Usage: go run tool.go -l <file_path> -t <scan_type>")
 		fmt.Println("Scan types:")
 		fmt.Println("  -t xss   : Test for XSS vulnerabilities")
 		fmt.Println("  -t op    : Test for Open Redirect vulnerabilities")
 		fmt.Println("  -t path  : Test for reflection in path segments")
+		fmt.Println("  -t ssti  : Test for Server-Side Template Injection")
 		os.Exit(1)
 	}
 
@@ -94,28 +95,54 @@ func startWorkerPool(urls <-chan string, results chan<- string, numWorkers int, 
 func processURLs(urls <-chan string, results chan<- string, client *http.Client) {
 	for rawURL := range urls {
 		switch scanType {
-		case "xss", "op":
-			var modifiedURL string
-			var testString string
-			var successCondition func(string) bool
-
-			if scanType == "xss" {
-				modifiedURL = replaceURLParams(rawURL, `</buggedou>`)
-				testString = `</buggedou>`
-				successCondition = func(body string) bool {
-					return strings.Contains(body, testString)
-				}
-			} else {
-				modifiedURL = replaceURLParams(rawURL, `https://example.com`)
-				testString = `<h1>Example Domain</h1>`
-				successCondition = func(body string) bool {
-					return strings.Contains(body, testString)
-				}
+		case "xss":
+			modifiedURL := replaceURLParams(rawURL, `</buggedou>`)
+			testString := `</buggedou>`
+			successCondition := func(body string) bool {
+				return strings.Contains(body, testString)
 			}
 
-			resp, err := client.Get(modifiedURL)
+			req, err := http.NewRequest("GET", modifiedURL, nil)
 			if err != nil {
-				continue // Skip errors silently
+				continue
+			}
+			req.Header.Set("User-Agent", "Mozilla/5.0 BuggedOutScanner")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			defer resp.Body.Close()
+
+			if !isXSSContentType(resp.Header.Get("Content-Type")) {
+				continue
+			}
+
+			body, readErr := readResponseBodyWithTimeout(resp.Body, 2*time.Second)
+			if readErr != nil {
+				continue
+			}
+
+			if successCondition(string(body)) {
+				results <- modifiedURL + "\n"
+			}
+
+		case "op":
+			modifiedURL := replaceURLParams(rawURL, `https://example.com`)
+			testString := `<h1>Example Domain</h1>`
+			successCondition := func(body string) bool {
+				return strings.Contains(body, testString)
+			}
+
+			req, err := http.NewRequest("GET", modifiedURL, nil)
+			if err != nil {
+				continue
+			}
+			req.Header.Set("User-Agent", "Mozilla/5.0 BuggedOutScanner")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
 			}
 			defer resp.Body.Close()
 
@@ -151,7 +178,13 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 				parsedURL.Path = "/" + strings.Join(modified, "/")
 				testedURL := parsedURL.String()
 
-				resp, err := client.Get(testedURL)
+				req, err := http.NewRequest("GET", testedURL, nil)
+				if err != nil {
+					continue
+				}
+				req.Header.Set("User-Agent", "Mozilla/5.0 BuggedOutScanner")
+
+				resp, err := client.Do(req)
 				if err != nil {
 					continue
 				}
@@ -172,6 +205,36 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 					break // move to next base URL
 				}
 			}
+
+		case "ssti":
+			modifiedURL := replaceURLParams(rawURL, `buggedout{{7*7}}`)
+			testString := "buggedout49"
+
+			req, err := http.NewRequest("GET", modifiedURL, nil)
+			if err != nil {
+				continue
+			}
+			req.Header.Set("User-Agent", "Mozilla/5.0 BuggedOutScanner")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			defer resp.Body.Close()
+
+			if !isXSSContentType(resp.Header.Get("Content-Type")) {
+				continue
+			}
+
+			body, readErr := readResponseBodyWithTimeout(resp.Body, 2*time.Second)
+			if readErr != nil {
+				continue
+			}
+
+			if strings.Contains(string(body), testString) {
+				results <- modifiedURL + "\n"
+			}
+
 		}
 	}
 }
@@ -186,7 +249,7 @@ func isXSSContentType(contentType string) bool {
 	}
 
 	for _, ct := range contentTypes {
-		if strings.Contains(contentType, ct) {
+		if strings.HasPrefix(contentType, ct) {
 			return true
 		}
 	}
