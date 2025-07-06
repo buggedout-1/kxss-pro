@@ -125,7 +125,7 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 			}
 
 			if successCondition(string(body)) {
-				fmt.Println(RedColor + "[FOUND] " + ResetColor + modifiedURL)
+				
 				results <- modifiedURL + "\n"
 			}
 
@@ -148,7 +148,7 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 				parsedURL.Path = "/" + strings.Join(modified, "/")
 				testedURL := parsedURL.String()
 
-				fmt.Println("[TESTING]", testedURL)
+				
 
 				resp, err := client.Get(testedURL)
 				if err != nil {
@@ -161,7 +161,7 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 				}
 
 				if strings.Contains(string(body), "<buggedout>") {
-					fmt.Println(RedColor + "[FOUND] Reflected at: " + testedURL + ResetColor)
+					
 					results <- testedURL + "\n"
 					break // move to next base URL
 				}
