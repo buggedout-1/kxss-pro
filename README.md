@@ -7,6 +7,7 @@ It helps you detect:
 🔹 Reflected **XSS** via query parameters  
 🔹 **Open Redirects**  
 🔹 Reflected strings in **path segments**
+🔹 Reflected SSTI
 
 ---
 
@@ -40,7 +41,7 @@ go run xssr.go -l urls.txt -t [xss | op | path]
 | Flag | Description                       |
 | ---- | --------------------------------- |
 | `-l` | Path to file with target URLs     |
-| `-t` | Scan type: `xss`, `op`, or `path` |
+| `-t` | Scan type: `xss`, `op`, `ssti`, or `path` |
 
 ---
 
@@ -62,5 +63,11 @@ Test for open redirects:
 
 ```bash
 go run xssr.go -l urls.txt -t op
+```
+
+Test for SSTI:
+
+```bash
+go run xssr.go -l urls.txt -t ssti
 ```
 
