@@ -129,7 +129,7 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 				results <- modifiedURL + "\n"
 			}
 
-		case "path":
+				case "path":
 			parsedURL, err := url.Parse(rawURL)
 			if err != nil {
 				continue
@@ -148,12 +148,17 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 				parsedURL.Path = "/" + strings.Join(modified, "/")
 				testedURL := parsedURL.String()
 
-				
-
 				resp, err := client.Get(testedURL)
 				if err != nil {
 					continue
 				}
+
+				//  Content-Type check added
+				if !isXSSContentType(resp.Header.Get("Content-Type")) {
+					resp.Body.Close()
+					continue
+				}
+
 				body, readErr := readResponseBodyWithTimeout(resp.Body, 2*time.Second)
 				resp.Body.Close()
 				if readErr != nil {
@@ -161,11 +166,11 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 				}
 
 				if strings.Contains(string(body), "<buggedout>") {
-					
 					results <- testedURL + "\n"
 					break // move to next base URL
 				}
 			}
+
 		}
 	}
 }
