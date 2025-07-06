@@ -7,6 +7,7 @@ It helps you detect:
 🔹 Reflected **XSS** via query parameters  
 🔹 **Open Redirects**  
 🔹 Reflected strings in **path segments**
+
 🔹 Reflected SSTI  
 
 ---
