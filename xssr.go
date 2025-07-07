@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -29,16 +30,18 @@ var (
 
 func main() {
 	flag.StringVar(&domainList, "l", "", "Path to the file containing the list of URLs.")
-	flag.StringVar(&scanType, "t", "", "Scan type: 'xss', 'op' (open redirect), 'path', or 'ssti'")
+	flag.StringVar(&scanType, "t", "", "Scan type: 'xss', 'op' (open redirect), 'path', 'ssti', 'input', or 'script'")
 	flag.Parse()
 
-	if domainList == "" || (scanType != "xss" && scanType != "op" && scanType != "path" && scanType != "ssti") {
+	if domainList == "" || (scanType != "xss" && scanType != "op" && scanType != "path" && scanType != "ssti" && scanType != "input" && scanType != "script") {
 		fmt.Println("Usage: go run tool.go -l <file_path> -t <scan_type>")
 		fmt.Println("Scan types:")
-		fmt.Println("  -t xss   : Test for XSS vulnerabilities")
-		fmt.Println("  -t op    : Test for Open Redirect vulnerabilities")
-		fmt.Println("  -t path  : Test for reflection in path segments")
-		fmt.Println("  -t ssti  : Test for Server-Side Template Injection")
+		fmt.Println("  -t xss    : Test for XSS vulnerabilities")
+		fmt.Println("  -t op     : Test for Open Redirect vulnerabilities")
+		fmt.Println("  -t path   : Test for reflection in path segments")
+		fmt.Println("  -t ssti   : Test for Server-Side Template Injection")
+		fmt.Println("  -t input  : Test for reflection inside <input> tags (possible XSS)")
+		fmt.Println("  -t script : Test for reflection inside <script> tag variable assignments")
 		os.Exit(1)
 	}
 
@@ -106,7 +109,7 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 			if err != nil {
 				continue
 			}
-			req.Header.Set("User-Agent", "Mozilla/5.0 BuggedOutScanner")
+			req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
 
 			resp, err := client.Do(req)
 			if err != nil {
@@ -138,7 +141,7 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 			if err != nil {
 				continue
 			}
-			req.Header.Set("User-Agent", "Mozilla/5.0 BuggedOutScanner")
+			req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
 
 			resp, err := client.Do(req)
 			if err != nil {
@@ -182,7 +185,7 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 				if err != nil {
 					continue
 				}
-				req.Header.Set("User-Agent", "Mozilla/5.0 BuggedOutScanner")
+				req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
 
 				resp, err := client.Do(req)
 				if err != nil {
@@ -214,7 +217,7 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 			if err != nil {
 				continue
 			}
-			req.Header.Set("User-Agent", "Mozilla/5.0 BuggedOutScanner")
+			req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
 
 			resp, err := client.Do(req)
 			if err != nil {
@@ -235,8 +238,93 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 				results <- modifiedURL + "\n"
 			}
 
+		case "input":
+			basePayload := "buggedout"
+			modifiedURL := replaceURLParams(rawURL, basePayload)
+
+			// Request with base payload to check reflection inside input value attribute
+			if reflectedInputValue(client, modifiedURL, basePayload) {
+				// Try with double quote injection
+				doubleQuotePayload := `"buggedout`
+				modifiedURLDouble := replaceURLParams(rawURL, doubleQuotePayload)
+				if reflectedInputValue(client, modifiedURLDouble, doubleQuotePayload) {
+					results <- modifiedURLDouble
+					continue
+				}
+
+				// Try with single quote injection
+				singleQuotePayload := `'buggedout`
+				modifiedURLSingle := replaceURLParams(rawURL, singleQuotePayload)
+				if reflectedInputValue(client, modifiedURLSingle, singleQuotePayload) {
+					results <- modifiedURLSingle + " (Possible XSS via single quote reflection)\n"
+					continue
+				}
+			}
+
+		case "script":
+			basePayload := "buggedout"
+			modifiedURL := replaceURLParams(rawURL, basePayload)
+
+			body, contentType, err := fetchResponseBody(client, modifiedURL)
+			if err != nil || !isXSSContentType(contentType) {
+				continue
+			}
+
+			if !scriptVarReflectsPayload(body, basePayload) {
+				continue
+			}
+
+			// Try double quote injection
+			doubleQuotePayload := `";buggedout`
+			modifiedDouble := replaceURLParams(rawURL, doubleQuotePayload)
+			bodyDouble, contentTypeDouble, err := fetchResponseBody(client, modifiedDouble)
+			if err == nil && isXSSContentType(contentTypeDouble) && scriptVarReflectsPayload(bodyDouble, doubleQuotePayload) {
+				results <- modifiedDouble
+				continue
+			}
+
+			// Try single quote injection
+			singleQuotePayload := `';buggedout`
+			modifiedSingle := replaceURLParams(rawURL, singleQuotePayload)
+			bodySingle, contentTypeSingle, err := fetchResponseBody(client, modifiedSingle)
+			if err == nil && isXSSContentType(contentTypeSingle) && scriptVarReflectsPayload(bodySingle, singleQuotePayload) {
+				results <- modifiedSingle + " (Possible XSS via single quote var reflection)\n"
+				continue
+			}
 		}
 	}
+}
+
+func fetchResponseBody(client *http.Client, targetURL string) (string, string, error) {
+	req, err := http.NewRequest("GET", targetURL, nil)
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := readResponseBodyWithTimeout(resp.Body, 2*time.Second)
+	if err != nil {
+		return "", "", err
+	}
+	return string(bodyBytes), resp.Header.Get("Content-Type"), nil
+}
+
+// scriptVarReflectsPayload checks if body contains a <script> tag with a JS var assigned a string
+// that contains the payload inside the quotes (only considers vars like var someVar = "...payload...")
+func scriptVarReflectsPayload(body, payload string) bool {
+	// Regex to find JS var assignments inside script tags:
+	// This looks for patterns like var foo = "some string here";
+	// capturing quote style and content inside.
+
+	// Fixed regex pattern - removed the invalid backreference
+	varRe := regexp.MustCompile(`(?i)var\s+\w+\s*=\s*['"][^'"]*` + regexp.QuoteMeta(payload) + `[^'"]*['"]`)
+	return varRe.MatchString(body)
 }
 
 func isXSSContentType(contentType string) bool {
@@ -325,4 +413,42 @@ func readResponseBodyWithTimeout(body io.Reader, timeout time.Duration) ([]byte,
 	case <-time.After(timeout):
 		return nil, fmt.Errorf("timeout while reading body")
 	}
+}
+
+// reflectedInputValue sends a GET request to the URL and checks if the given payload
+// is reflected inside the value attribute of an input tag in the response body.
+func reflectedInputValue(client *http.Client, testURL, payload string) bool {
+	req, err := http.NewRequest("GET", testURL, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	if !isXSSContentType(resp.Header.Get("Content-Type")) {
+		return false
+	}
+
+	bodyBytes, err := readResponseBodyWithTimeout(resp.Body, 2*time.Second)
+	if err != nil {
+		return false
+	}
+
+	body := string(bodyBytes)
+	return inputValueReflected(body, payload)
+}
+
+// inputValueReflected checks if the payload is reflected inside any <input ... value="...payload..." ...> or value='...payload...'>
+func inputValueReflected(body, payload string) bool {
+	// Check if payload is inside value="...payload..." or value='...payload...'
+	if strings.Contains(body, `value="`+payload) || strings.Contains(body, `value='`+payload) {
+		return true
+	}
+
+	return false
 }
