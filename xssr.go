@@ -66,7 +66,7 @@ func main() {
 	resultsChannel := make(chan string, totalTargets)
 	done := make(chan bool)
 
-	go startWorkerPool(urlsChannel, resultsChannel, 10, client)
+	go startWorkerPool(urlsChannel, resultsChannel, 50, client)
 	go processResults(resultsChannel, done)
 
 	for _, url := range urls {
