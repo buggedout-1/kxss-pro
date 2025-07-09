@@ -248,7 +248,7 @@ func processURLs(urls <-chan string, results chan<- string, client *http.Client)
 				doubleQuotePayload := `"buggedout`
 				modifiedURLDouble := replaceURLParams(rawURL, doubleQuotePayload)
 				if reflectedInputValue(client, modifiedURLDouble, doubleQuotePayload) {
-					results <- modifiedURLDouble
+					results <- modifiedURLDouble + "\n"
 					continue
 				}
 
